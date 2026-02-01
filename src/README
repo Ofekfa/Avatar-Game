@@ -1,0 +1,72 @@
+ofekfa
+206626145
+
+1. Avatar design
+Packages / classes and relationships:
+pepse.world.avatar.Avatar is a GameObject and represents the player character.
+It owns:
+the energy state (current energy, clamping, and change notifications),the movement + jump logic,
+the animation renderables (idle/run/jump), a internal state machine (Idle / Run / Jump).
+pepse.world.ui.EnergyDisplay is a GameObject used as a UI widget.
+It does not know the Avatar class. Instead, it exposes updateEnergy(float) and is updated via a callback.
+pepse.PepseGameManager is responsible for wiring everything together:
+creates the Avatar, creates the EnergyDisplay, and connects them via a callback.
+
+How state changes in the avatar are designed:
+The avatar behavior is implemented using an internal state pattern:
+A private interface AvatarState defines:
+onEnter(Avatar), onExit(Avatar), update(Avatar, deltaTime)
+Three private state classes implement it:
+IdleState – standing still, energy regenerates on ground, regular jump allowed
+RunState – horizontal movement, costs energy only while on ground, regular jump allowed.
+JumpState – in-air logic, horizontal control without energy cost, and one double jump while falling
+The state transition is decided centrally by chooseNextState():
+If the avatar is not on ground - JumpState
+else if exactly one arrow is pressed and energy is sufficient - RunState, otherwise - IdleState
+
+How energy is designed and updated:
+Energy is managed with these principles:
+Energy is owned by the Avatar and encapsulated.
+Every energy change goes through a single internal method that:
+triggers notifications only when the value actually changes.
+Energy rules are implemented inside the relevant states:
+Idle on ground: +1 energy per update.
+Run on ground: -2 energy per update, only if there is enough energy
+jump: no continuous energy change.
+Regular jump: immediate -20, only from ground
+Double jump: immediate -50, only while falling and once per airtime
+This matches the idea that each state is responsible for the rules that belong to it,
+instead of scattering energy logic.
+How the energy display is updated:
+by a callback design - Avatar exposes addEnergyChangedListener(Consumer<Float>)
+EnergyDisplay exposes updateEnergy(float newEnergy),
+in PepseGameManager i connect them using a method reference:
+avatar.addEnergyChangedListener(energyDisplay::updateEnergy)
+i also update the display only when energy changes, not every update
+Avatar notifies listeners only if the energy value changed
+This keeps the UI responsive and avoids repeating updates.
+
+2. Tree package design:
+The flora system is located under pepse.world.trees and is built with a separation of responsibilities:
+Flora
+Responsible for deciding where trees exist in a requested range.
+It receives groundHeightAt(x) as a function, so it does not depend on the concrete Terrain class.
+it returns a FloraPack containing all objects that should be added to the game.
+FloraPack
+A small container that groups the created objects into:
+trunks, leaves and fruits.
+This makes PepseGameManager loading and unloading logic clean - it can add each group to the correct layer.
+Tree
+Responsible for making a single tree at a specific x coordinate, it creates and returns its parts:
+Trunk, a collection of Leaf objects, a collection of Fruit objects - Trunk, Leaf, Fruit
+Each one is a GameObject with its own small behavior:
+Trunk is static and used as collision geometry.
+Leaf contains leaf animation logic (movement and scale)
+Fruit handles collection and respawn timing, and report using callback.
+
+Determinism and consistency -
+To achieve this: Flora.createInRange(minX, maxX) aligns x values to the block grid.
+for each x i create a Random that depends only on (x, worldSeed): new Random(Objects.hash(x, worldSeed))
+This ensures that if there was a tree at x the first time, there will be the same tree there when we return.
+leaf distribution and fruit placement for that tree stays consistent for the same seed.
+
